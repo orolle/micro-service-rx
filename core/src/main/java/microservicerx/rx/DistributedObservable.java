@@ -195,7 +195,7 @@ class ObservableToEventbus implements Observer<Object> {
 
   @Override
   public void onError(Throwable e) {
-    vertx.eventBus().publish(addr, e,
+    vertx.eventBus().publish(addr, e.getMessage(),
       new DeliveryOptions().addHeader(MessageHeader.ACTION.name(), MessageType.ERROR.name()));
   }
 
