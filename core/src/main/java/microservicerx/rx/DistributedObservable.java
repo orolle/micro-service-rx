@@ -9,10 +9,13 @@ import io.vertx.core.eventbus.DeliveryOptions;
 import io.vertx.core.json.JsonObject;
 import io.vertx.rxjava.core.Vertx;
 import io.vertx.rxjava.core.eventbus.MessageConsumer;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import microservicerx.function.Serializer;
 import rx.Observable;
 import rx.Observer;
 import rx.subjects.BehaviorSubject;
@@ -40,24 +43,24 @@ public class DistributedObservable {
   public DistributedObservable(String dhtAddress) {
     this.address = dhtAddress;
   }
-  
+
   public JsonObject toJsonObject() {
     return new JsonObject().
       put("address", address);
   }
-  
+
   public static DistributedObservable fromJsonObject(JsonObject json) {
     return new DistributedObservable(json);
   }
 
   public <T> Observable<T> toObservable(Vertx vertx) {
-    BehaviorSubject replay = BehaviorSubject.create();
+    BehaviorSubject result = BehaviorSubject.create();
     String consumerAddr = UUID.randomUUID().toString();
-    AtomicReference<MessageConsumer<T>> consumer = new AtomicReference<>(vertx.eventBus().consumer(consumerAddr));
+    AtomicReference<MessageConsumer<Object>> consumer = new AtomicReference<>(vertx.eventBus().consumer(consumerAddr));
     AtomicLong currentId = new AtomicLong(0L);
-    
+
     Runnable consumerClose = () -> {
-      if(consumer.get() != null) {
+      if (consumer.get() != null) {
         consumer.get().unregister();
         consumer.set(null);
       }
@@ -79,18 +82,18 @@ public class DistributedObservable {
           } catch (Exception e) {
             currentId.set(id);
             currentId.incrementAndGet();
-            
-            replay.onError(e);
+
+            result.onError(e);
             return;
           }
 
-          replay.onNext(msg.body());
+          result.onNext(msg.body());
         } else if (MessageType.ERROR.name().equals(type)) {
-          if (msg.body() instanceof Throwable) {
-            replay.onError((Throwable) msg.body());
+          if (msg.body() instanceof byte[]) {
+            result.onError(Serializer.<Throwable>deserialize((byte[]) msg.body()));
           } else {
             String error = msg.body() == null ? "message error is null" : msg.body().toString();
-            replay.onError(new IllegalStateException(error));
+            result.onError(new IllegalStateException(error));
           }
         } else if (MessageType.COMPLETED.name().equals(type)) {
           Long id = -1L;
@@ -101,25 +104,25 @@ public class DistributedObservable {
               throw new OutOfOrderException("Out of order COMPLETED detected! expected=" + currentId + " but was=" + id);
             }
           } catch (Exception e) {
-            replay.onError(e);
+            result.onError(e);
             return;
           }
-          replay.onCompleted();
+          result.onCompleted();
         } else {
-          replay.onError(new IllegalStateException("MessageType unknown type=" + type));
+          result.onError(new IllegalStateException("MessageType unknown type=" + type));
         }
       }).
-      doOnCompleted(replay::onCompleted).
-      doOnError(replay::onError).
+      doOnCompleted(result::onCompleted).
+      doOnError(result::onError).
       subscribe();
 
     vertx.eventBus().sendObservable(address, consumerAddr).
-      doOnNext(msg -> replay.onError(new IllegalStateException("Received not expected msg.body()=" + msg.body()))).
-      doOnCompleted(replay::onCompleted).
-      doOnError(replay::onError).
+      doOnNext(msg -> result.onError(new IllegalStateException("Received not expected msg.body()=" + msg.body()))).
+      doOnCompleted(result::onCompleted).
+      doOnError(result::onError).
       subscribe();
 
-    return replay.
+    return result.
       doOnCompleted(() -> consumerClose.run()).
       doOnError(e -> consumerClose.run()).
       cache();
@@ -153,7 +156,7 @@ public class DistributedObservable {
 
   @Override
   public boolean equals(Object obj) {
-    if(obj instanceof DistributedObservable) {
+    if (obj instanceof DistributedObservable) {
       DistributedObservable that = (DistributedObservable) obj;
       return Objects.equals(this.address, that.address);
     }
@@ -163,6 +166,13 @@ public class DistributedObservable {
   @Override
   public DistributedObservable clone() {
     return new DistributedObservable(this.address);
+  }
+
+  public static String stackTraceAsString(Throwable e) {
+    StringWriter sw = new StringWriter();
+    PrintWriter pw = new PrintWriter(sw);
+    e.printStackTrace(pw);
+    return sw.toString(); // stack trace as a string
   }
 }
 
@@ -195,7 +205,7 @@ class ObservableToEventbus implements Observer<Object> {
 
   @Override
   public void onError(Throwable e) {
-    vertx.eventBus().publish(addr, e.getMessage(),
+    vertx.eventBus().publish(addr, Serializer.serialize(e),
       new DeliveryOptions().addHeader(MessageHeader.ACTION.name(), MessageType.ERROR.name()));
   }
 
@@ -208,5 +218,4 @@ class ObservableToEventbus implements Observer<Object> {
 
     currentId += 1;
   }
-
 }
