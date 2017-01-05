@@ -167,4 +167,35 @@ public class MicroServiceRxTest {
       }).
       subscribe();
   }
+  
+  @Test
+  public void testMicroServiceRxPublishDelaySubscribe(TestContext context) {
+    Async async = context.async();
+
+    vertx.deployVerticleObservable(MicroServiceRxVerticle.class.getCanonicalName()).
+      doOnNext(id -> {
+        MicroServiceRx proxy = new MicroServiceRxVertxEBProxy((io.vertx.core.Vertx) vertx.getDelegate(), MicroServiceRx.ADDRESS_DEFAULT);
+        microservicerx.example.rxjava.MicroServiceRx proxy_rx = microservicerx.example.rxjava.MicroServiceRx.newInstance(proxy);
+        AtomicLong counter = new AtomicLong(0);
+        
+        proxy_rx.publishObservable().
+          mergeWith(vertx.timerStream(4000).toObservable().flatMap(t -> proxy_rx.publishObservable())).
+          map(json -> new DistributedObservable(json)).
+          flatMap(dist -> dist.<JsonObject>toObservable(vertx)).
+          doOnNext(System.out::println).
+          doOnNext(json -> context.assertTrue(json.getLong("now") > 0)).
+          doOnNext(json -> {
+            counter.incrementAndGet();
+            if(counter.get() >= 20) {
+              if(!async.isCompleted()) {
+                async.complete();
+              }
+            }
+          }).
+          doOnError(context::fail).
+          subscribe();
+
+      }).
+      subscribe();
+  }
 }
