@@ -89,12 +89,9 @@ public class DistributedObservable {
 
           result.onNext(msg.body());
         } else if (MessageType.ERROR.name().equals(type)) {
-          if (msg.body() instanceof byte[]) {
-            result.onError(Serializer.<Throwable>deserialize((byte[]) msg.body()));
-          } else {
-            String error = msg.body() == null ? "message error is null" : msg.body().toString();
-            result.onError(new IllegalStateException(error));
-          }
+          String error = msg.body() == null ? "message error is null" : msg.body().toString();
+          result.onError(new IllegalStateException(error));
+          
         } else if (MessageType.COMPLETED.name().equals(type)) {
           Long id = -1L;
           try {
@@ -128,8 +125,8 @@ public class DistributedObservable {
       cache();
   }
 
-  public static DistributableConsumer toSendable(Observable<? extends Object> in, Vertx vertx) {
-    DistributableConsumer result = new DistributableConsumer();
+  public static DistributedConsumer toSendable(Observable<? extends Object> in, Vertx vertx) {
+    DistributedConsumer result = new DistributedConsumer();
     result.distributed = new DistributedObservable();
 
     result.consumer = vertx.eventBus().consumer(result.distributed.address);
@@ -142,8 +139,8 @@ public class DistributedObservable {
     return result;
   }
 
-  public static DistributableConsumer toPublishable(Observable<? extends Object> in, Vertx vertx) {
-    DistributableConsumer result = new DistributableConsumer();
+  public static DistributedConsumer toPublishable(Observable<? extends Object> in, Vertx vertx) {
+    DistributedConsumer result = new DistributedConsumer();
     result.distributed = new DistributedObservable();
 
     result.consumer = vertx.eventBus().consumer(result.distributed.address);
@@ -210,7 +207,8 @@ class ObservableToEventbus implements Observer<Object> {
 
   @Override
   public void onError(Throwable e) {
-    vertx.eventBus().publish(addr, Serializer.serialize(e),
+    String stackTrace = DistributedObservable.stackTraceAsString(e);
+    vertx.eventBus().publish(addr, stackTrace,
       new DeliveryOptions().addHeader(MessageHeader.ACTION.name(), MessageType.ERROR.name()));
   }
 
@@ -223,10 +221,4 @@ class ObservableToEventbus implements Observer<Object> {
 
     currentId += 1;
   }
-}
-
-class DistributableConsumer {
-
-  public DistributedObservable distributed;
-  public MessageConsumer<String> consumer;
 }

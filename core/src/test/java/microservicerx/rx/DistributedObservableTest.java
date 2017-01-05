@@ -56,7 +56,7 @@ public class DistributedObservableTest {
     Async async = context.async();
 
     // ((EventBus)vertx.eventBus().getDelegate()).registerDefaultCodec(DistributedObservable.class, new DistributedObservableCodec());
-    DistributableConsumer consumer = DistributedObservable.toSendable(Observable.just(1, 2, 3), vertx);
+    DistributedConsumer consumer = DistributedObservable.toSendable(Observable.just(1, 2, 3), vertx);
     DistributedObservable send = consumer.distributed;
 
     vertx.eventBus().<JsonObject>consumer("TEST").toObservable().
@@ -97,7 +97,7 @@ public class DistributedObservableTest {
     Async async = context.async();
 
     // ((EventBus)vertx.eventBus().getDelegate()).registerDefaultCodec(DistributedObservable.class, new DistributedObservableCodec());
-    DistributableConsumer consumer = DistributedObservable.toPublishable(Observable.just(1, 2, 3), vertx);
+    DistributedConsumer consumer = DistributedObservable.toPublishable(Observable.just(1, 2, 3), vertx);
     DistributedObservable publish = consumer.distributed;
 
     vertx.eventBus().<JsonObject>consumer("TEST").toObservable().
@@ -134,7 +134,7 @@ public class DistributedObservableTest {
   }
 
   @Test
-  public void writeAndReadErrorObservable(TestContext context) {
+  public void writeAndReadErrorSendable(TestContext context) {
     Async async = context.async();
 
     // ((EventBus)vertx.eventBus().getDelegate()).registerDefaultCodec(DistributedObservable.class, new DistributedObservableCodec());

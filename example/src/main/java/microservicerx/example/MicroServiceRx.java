@@ -20,11 +20,13 @@ import io.vertx.core.json.JsonObject;
 public interface MicroServiceRx {
 
   String ADDRESS_DEFAULT = "micro.service.rx.example.MicroServiceRx";
-  
+
   int NO_NAME_ERROR = 2;
   int BAD_NAME_ERROR = 3;
 
   void cold(JsonObject document, Handler<AsyncResult<JsonObject>> resultHandler);
-  
+
   void hot(JsonObject document, Handler<AsyncResult<JsonObject>> resultHandler);
+
+  void publish(Handler<AsyncResult<JsonObject>> resultHandler);
 }

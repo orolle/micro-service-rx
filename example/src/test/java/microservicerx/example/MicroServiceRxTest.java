@@ -12,13 +12,14 @@ import io.vertx.ext.unit.Async;
 import io.vertx.ext.unit.TestContext;
 import io.vertx.ext.unit.junit.VertxUnitRunner;
 import io.vertx.rxjava.core.Vertx;
+import java.util.concurrent.atomic.AtomicLong;
+import microservicerx.rx.DistributedObservable;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import rvertigo.rx.DistributedObservable;
 
 /**
  *
@@ -125,11 +126,42 @@ public class MicroServiceRxTest {
         microservicerx.example.rxjava.MicroServiceRx proxy_rx = microservicerx.example.rxjava.MicroServiceRx.newInstance(proxy);
 
         proxy_rx.hotObservable(new JsonObject().put("name", "bad")).
-          map(json -> new DistributedObservable(json)).
+          map(json -> new microservicerx.rx.DistributedObservable(json)).
           flatMap(dist -> dist.<JsonObject>toObservable(vertx)).
           doOnNext(next -> context.fail("doOnNext() should not be called!")).
           doOnError(e -> context.assertTrue(e instanceof Throwable)).
           doOnError(e -> async.complete()).
+          subscribe();
+
+      }).
+      subscribe();
+  }
+  
+  @Test
+  public void testMicroServiceRxPublish(TestContext context) {
+    Async async = context.async();
+
+    vertx.deployVerticleObservable(MicroServiceRxVerticle.class.getCanonicalName()).
+      doOnNext(id -> {
+        MicroServiceRx proxy = new MicroServiceRxVertxEBProxy((io.vertx.core.Vertx) vertx.getDelegate(), MicroServiceRx.ADDRESS_DEFAULT);
+        microservicerx.example.rxjava.MicroServiceRx proxy_rx = microservicerx.example.rxjava.MicroServiceRx.newInstance(proxy);
+        AtomicLong counter = new AtomicLong(0);
+        
+        proxy_rx.publishObservable().
+          mergeWith(proxy_rx.publishObservable()).
+          map(json -> new DistributedObservable(json)).
+          flatMap(dist -> dist.<JsonObject>toObservable(vertx)).
+          doOnNext(System.out::println).
+          doOnNext(json -> context.assertTrue(json.getLong("now") > 0)).
+          doOnNext(json -> {
+            counter.incrementAndGet();
+            if(counter.get() >= 3) {
+              if(!async.isCompleted()) {
+                async.complete();
+              }
+            }
+          }).
+          doOnError(context::fail).
           subscribe();
 
       }).

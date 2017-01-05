@@ -12,7 +12,8 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.rxjava.core.Vertx;
 import io.vertx.serviceproxy.ServiceException;
 import microservicerx.example.MicroServiceRx;
-import rvertigo.rx.DistributedObservable;
+import microservicerx.rx.DistributedConsumer;
+import microservicerx.rx.DistributedObservable;
 import rx.Observable;
 import rx.subjects.BehaviorSubject;
 
@@ -24,12 +25,30 @@ public class MicroServiceRxImpl implements MicroServiceRx {
 
   private final Vertx vertx;
 
+  final BehaviorSubject<Object> publishSubject;
+  final DistributedConsumer dist;
+
   public MicroServiceRxImpl(Vertx vertx) {
     this.vertx = vertx;
+
+    publishSubject = BehaviorSubject.create();
+    dist = DistributedObservable.toPublishable(publishSubject, this.vertx);
+
+    Long timerId = vertx.setPeriodic(1000, l -> {
+      JsonObject event = new JsonObject().put("now", System.currentTimeMillis());
+      publishSubject.onNext(event);
+    });
+    
+    /*
+    vertx.setTimer(3 * 1000, l -> {
+      vertx.cancelTimer(timerId);
+      publishSubject.onCompleted();
+    });
+    */
   }
 
   public MicroServiceRxImpl(io.vertx.core.Vertx vertx) {
-    this.vertx = new Vertx(vertx);
+    this(new Vertx(vertx));
   }
 
   @Override
@@ -46,7 +65,7 @@ public class MicroServiceRxImpl implements MicroServiceRx {
       result.put("approved", true);
       observable = Observable.just(result.copy().put("id", 0), result.copy().put("id", 1));
     }
-    DistributedObservable dist = DistributedObservable.toDistributable(observable.map(j -> (Object) j), vertx);
+    DistributedObservable dist = DistributedObservable.toSendable(observable, vertx).distributed;
     resultHandler.handle(Future.succeededFuture(dist.toJsonObject()));
   }
 
@@ -65,13 +84,20 @@ public class MicroServiceRxImpl implements MicroServiceRx {
         JsonObject event = result.copy().put("approved", true).put("now", System.currentTimeMillis());
         subject.onNext(event);
       });
-      
-      vertx.setTimer(3*1000, l -> {
+
+      vertx.setTimer(3 * 1000, l -> {
         vertx.cancelTimer(timerId);
         subject.onCompleted();
       });
     }
-    DistributedObservable dist = DistributedObservable.toDistributable(subject, vertx);
+    DistributedObservable dist = DistributedObservable.toSendable(subject, vertx).distributed;
     resultHandler.handle(Future.succeededFuture(dist.toJsonObject()));
+  }
+
+  @Override
+  public void publish(Handler<AsyncResult<JsonObject>> resultHandler) {
+    System.out.println("publish()...");
+
+    resultHandler.handle(Future.succeededFuture(dist.distributed.toJsonObject()));
   }
 }
