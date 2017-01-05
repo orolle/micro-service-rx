@@ -11,10 +11,12 @@ import io.vertx.ext.unit.Async;
 import io.vertx.ext.unit.TestContext;
 import io.vertx.ext.unit.junit.VertxUnitRunner;
 import io.vertx.rxjava.core.Vertx;
+import javax.sound.midi.SysexMessage;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import rx.Observable;
@@ -50,11 +52,12 @@ public class DistributedObservableTest {
   }
 
   @Test
-  public void writeAndReadObservable(TestContext context) {
+  public void writeAndReadSendable(TestContext context) {
     Async async = context.async();
 
     // ((EventBus)vertx.eventBus().getDelegate()).registerDefaultCodec(DistributedObservable.class, new DistributedObservableCodec());
-    DistributedObservable send = DistributedObservable.toDistributable(Observable.just(1, 2, 3), vertx);
+    DistributableConsumer consumer = DistributedObservable.toSendable(Observable.just(1, 2, 3), vertx);
+    DistributedObservable send = consumer.distributed;
 
     vertx.eventBus().<JsonObject>consumer("TEST").toObservable().
       map(msg -> new DistributedObservable(msg.body())).
@@ -67,10 +70,13 @@ public class DistributedObservableTest {
         recv.<Integer>toObservable(vertx).
           reduce(0, (r, a) -> r + a).
           doOnNext(r -> context.assertEquals(6, r)).
+          doOnCompleted(() -> System.out.println("COMPLETED!")).
           doOnCompleted(() -> {
             // Subscribe second time
             // should fail
+            
             recv.toObservable(vertx).
+              doOnNext(msg -> context.fail(new IllegalStateException("Should not receive message!"))).
               doOnError(e -> {
                 context.assertTrue(e != null);
                 context.assertTrue(e instanceof Throwable);
@@ -87,11 +93,52 @@ public class DistributedObservableTest {
   }
 
   @Test
+  public void writeAndReadPublishable(TestContext context) {
+    Async async = context.async();
+
+    // ((EventBus)vertx.eventBus().getDelegate()).registerDefaultCodec(DistributedObservable.class, new DistributedObservableCodec());
+    DistributableConsumer consumer = DistributedObservable.toPublishable(Observable.just(1, 2, 3), vertx);
+    DistributedObservable publish = consumer.distributed;
+
+    vertx.eventBus().<JsonObject>consumer("TEST").toObservable().
+      map(msg -> new DistributedObservable(msg.body())).
+      doOnNext(recv -> {
+        context.assertTrue(recv != publish);
+        context.assertEquals(recv, publish);
+
+        // Subscribe first time
+        // should succeed
+        recv.<Integer>toObservable(vertx).
+          mergeWith(recv.toObservable(vertx)).
+          doOnNext(System.out::println).
+          reduce(0, (r, a) -> r + a).
+          doOnNext(r -> context.assertEquals(2 * 6, r)).
+          doOnNext(r -> consumer.consumer.unregister()). // manual unregister
+          doOnCompleted(() -> {
+            // Subscribe second time
+            // should fail
+            recv.toObservable(vertx).
+              doOnError(e -> {
+                context.assertTrue(e != null);
+                context.assertTrue(e instanceof Throwable);
+                async.complete();
+              }).
+              subscribe();
+          }).
+          doOnError(context::fail).
+          subscribe();
+      }).
+      subscribe();
+
+    vertx.eventBus().send("TEST", publish.toJsonObject());
+  }
+
+  @Test
   public void writeAndReadErrorObservable(TestContext context) {
     Async async = context.async();
 
     // ((EventBus)vertx.eventBus().getDelegate()).registerDefaultCodec(DistributedObservable.class, new DistributedObservableCodec());
-    DistributedObservable send = DistributedObservable.toDistributable(Observable.error(new IllegalStateException("ERROR")), vertx);
+    DistributedObservable send = DistributedObservable.toSendable(Observable.error(new IllegalStateException("ERROR")), vertx).distributed;
 
     vertx.eventBus().<JsonObject>consumer("TEST").toObservable().
       map(msg -> new DistributedObservable(msg.body())).

@@ -128,27 +128,28 @@ public class DistributedObservable {
       cache();
   }
 
-  public static DistributedObservable toDistributable(Observable<? extends Object> in, Vertx vertx) {
-    DistributedObservable result = new DistributedObservable();
+  public static DistributableConsumer toSendable(Observable<? extends Object> in, Vertx vertx) {
+    DistributableConsumer result = new DistributableConsumer();
+    result.distributed = new DistributedObservable();
 
-    AtomicReference<MessageConsumer<String>> consumer = new AtomicReference<>(null);
-
-    Runnable closeMsgConsumer = () -> {
-      MessageConsumer<String> msgc = consumer.get();
-      if (msgc != null) {
-        consumer.set(null);
-        msgc.unregister();
-      }
-    };
-
-    vertx.setTimer(DeliveryOptions.DEFAULT_TIMEOUT, l -> closeMsgConsumer.run());
-    consumer.set(vertx.eventBus().consumer(result.address));
-    consumer.get().toObservable().
+    result.consumer = vertx.eventBus().consumer(result.distributed.address);
+    result.consumer.toObservable().
       subscribe(msg -> {
-
+        result.consumer.unregister();
         in.subscribe(new ObservableToEventbus(vertx, msg.body()));
+      });
 
-        closeMsgConsumer.run();
+    return result;
+  }
+
+  public static DistributableConsumer toPublishable(Observable<? extends Object> in, Vertx vertx) {
+    DistributableConsumer result = new DistributableConsumer();
+    result.distributed = new DistributedObservable();
+
+    result.consumer = vertx.eventBus().consumer(result.distributed.address);
+    result.consumer.toObservable().
+      subscribe(msg -> {
+        in.subscribe(new ObservableToEventbus(vertx, msg.body()));
       });
 
     return result;
@@ -190,10 +191,14 @@ class ObservableToEventbus implements Observer<Object> {
   public final String addr;
   public Long currentId;
 
-  public ObservableToEventbus(Vertx v, String addr) {
+  public ObservableToEventbus(Vertx v, String addr, Long id) {
     this.vertx = v;
     this.addr = addr;
-    this.currentId = 0L;
+    this.currentId = id;
+  }
+
+  public ObservableToEventbus(Vertx v, String addr) {
+    this(v, addr, 0L);
   }
 
   @Override
@@ -218,4 +223,10 @@ class ObservableToEventbus implements Observer<Object> {
 
     currentId += 1;
   }
+}
+
+class DistributableConsumer {
+
+  public DistributedObservable distributed;
+  public MessageConsumer<String> consumer;
 }
